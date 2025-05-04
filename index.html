@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chatbot Tư Vấn Da Liễu</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .chat-container {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            height: 500px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        .message {
+            padding: 10px 15px;
+            border-radius: 18px;
+            margin-bottom: 10px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .bot-message {
+            background-color: #e3f2fd;
+            align-self: flex-start;
+            margin-right: auto;
+        }
+        .user-message {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #image-container {
+            margin: 10px 0;
+            text-align: center;
+        }
+        #image-container img {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 5px;
+        }
+        #label-container {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+        }
+        .options {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .option-btn {
+            background-color: #2196F3;
+        }
+        .option-btn:hover {
+            background-color: #0b7dda;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chatbot Tư Vấn Da Liễu</h1>
+    <div class="chat-container" id="chat-container">
+        <div class="message bot-message">
+            <div class="message-text">Xin chào! Tôi là chatbot tư vấn da liễu. Hãy tải lên hình ảnh tình trạng da hiện tại của bạn để tôi phân tích nhé!</div>
+        </div>
+    </div>
+    
+    <div id="image-container"></div>
+    <div id="label-container"></div>
+    
+    <div class="input-container">
+        <input type="file" id="file-input" accept="image/*" style="display: none;">
+        <button onclick="document.getElementById('file-input').click()">Tải ảnh lên</button>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <script type="text/javascript">
+        // the link to your model provided by Teachable Machine export panel
+        const URL = "https://teachablemachine.withgoogle.com/models/BWYl8bhjU/";
+        let model, imageElement, labelContainer, maxPredictions;
+        let currentSkinType = '';
+        let chatHistory = [];
+
+        // Skin care recommendations based on skin type
+        const skinCareTips = {
+            "da binh thuong": [
+                "Sử dụng sữa rửa mặt dịu nhẹ không chứa cồn",
+                "Dưỡng ẩm 2 lần/ngày với kem dưỡng có thành phần Hyaluronic Acid",
+                "Đắp mặt nạ dưỡng ẩm 2-3 lần/tuần",
+                "Tránh nước quá nóng khi rửa mặt",
+                "Uống đủ 2 lít nước mỗi ngày"
+            ],
+            "da bi mun an": [
+                "Rửa mặt 2 lần/ngày với sữa rửa mặt cho loại da phù hợp",
+                "Sử dụng toner không cồn để cân bằng độ pH",
+                "Dưỡng ẩm với kem gel, tránh kem quá đặc",
+                "Tẩy tế bào chết 1-2 lần/tuần",
+                "Hạn chế đồ ăn nhiều dầu mỡ và đường"
+            ],
+            "mun dau den": [
+                "Sử dụng sản phẩm riêng cho từng vùng da",
+                "Dưỡng ẩm vùng khô, kiềm dầu vùng chữ T",
+                "Tẩy tế bào chết 1-2 lần/tuần",
+                "Sử dụng mặt nạ đất sét cho vùng chữ T",
+                "Tránh sản phẩm chứa cồn cao"
+            ],
+            "da bi mun viem": [
+                "Sử dụng sản phẩm không mùi, không cồn",
+                "Test sản phẩm mới trên vùng da nhỏ trước khi dùng",
+                "Tránh các thành phần gây kích ứng như acid mạnh",
+                "Bảo vệ da khỏi ánh nắng mặt trời",
+                "Ưu tiên sản phẩm có thành phần làm dịu như Aloe Vera"
+            ]
+        };
+
+        // Add message to chat
+        function addMessage(text, isBot = true) {
+            const chatContainer = document.getElementById('chat-container');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isBot ? 'bot-message' : 'user-message'}`;
+            messageDiv.innerHTML = `<div class="message-text">${text}</div>`;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            chatHistory.push({text, isBot});
+        }
+
+        // Add options buttons
+        function addOptions(options) {
+            const optionsDiv = document.createElement('div');
+            optionsDiv.className = 'options';
+            
+            options.forEach(option => {
+                const button = document.createElement('button');
+                button.className = 'option-btn';
+                button.textContent = option.text;
+                button.onclick = option.action;
+                optionsDiv.appendChild(button);
+            });
+            
+            const chatContainer = document.getElementById('chat-container');
+            chatContainer.appendChild(optionsDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Show skin care recommendations
+        function showSkinCareTips() {
+            if (!currentSkinType || !skinCareTips[currentSkinType]) {
+                addMessage("Xin lỗi, tôi không tìm thấy gợi ý chăm sóc phù hợp cho loại da này.");
+                return;
+            }
+            
+            addMessage(`Dưới đây là một số gợi ý chăm sóc cho ${currentSkinType}:`);
+            
+            const tipsList = skinCareTips[currentSkinType].map(tip => `• ${tip}`).join('<br>');
+            addMessage(tipsList);
+            
+            addMessage("Bạn có muốn tư vấn thêm không?", false);
+            addOptions([
+                {
+                    text: "Có, tư vấn thêm",
+                    action: () => addMessage("Vui lòng mô tả thêm tình trạng da của bạn để tôi tư vấn chi tiết hơn.")
+                },
+                {
+                    text: "Không, cảm ơn",
+                    action: () => addMessage("Cảm ơn bạn đã sử dụng dịch vụ. Chúc bạn có làn da khỏe mạnh!")
+                }
+            ]);
+        }
+
+        // Load the image model
+        async function init() {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            try {
+                // Load the model and metadata
+                console.log("Loading model...");
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+                console.log("Model loaded successfully!");
+
+                // Create label container for predictions
+                labelContainer = document.getElementById("label-container");
+                for (let i = 0; i < maxPredictions; i++) {
+                    labelContainer.appendChild(document.createElement("div"));
+                }
+
+                // Set up file input
+                document.getElementById('file-input').addEventListener('change', loadImage);
+            } catch (error) {
+                console.error("Error loading model:", error);
+                addMessage("Xin lỗi, có lỗi xảy ra khi tải mô hình phân tích da. Vui lòng thử lại sau.");
+            }
+        }
+
+        // Load image from file input and predict
+        function loadImage(event) {
+            const reader = new FileReader();
+            reader.onload = function () {
+                // Create an image element
+                imageElement = new Image();
+                imageElement.src = reader.result;
+                imageElement.onload = function() {
+                    console.log("Image loaded, running prediction...");
+
+                    // Display image
+                    const imageContainer = document.getElementById("image-container");
+                    imageContainer.innerHTML = "";
+                    imageContainer.appendChild(imageElement);
+
+                    // Add user message
+                    addMessage("Đã tải lên ảnh da mặt.", false);
+                    addMessage("Đang phân tích hình ảnh...");
+
+                    // Run prediction
+                    predict(imageElement);
+                };
+            };
+            reader.readAsDataURL(event.target.files[0]);
+        }
+
+        // Run the image through the model for prediction
+        async function predict(image) {
+            try {
+                console.log("Predicting...");
+                // Predict the class of the image
+                const prediction = await model.predict(image);
+                console.log("Prediction results:", prediction);
+
+                // Find the highest probability class
+                let highestProb = 0;
+                let mainSkinType = '';
+                
+                for (let i = 0; i < maxPredictions; i++) {
+                    const classPrediction = prediction[i].className + ": " + (prediction[i].probability * 100).toFixed(2) + "%";
+                    labelContainer.childNodes[i].innerHTML = classPrediction;
+                    
+                    if (prediction[i].probability > highestProb) {
+                        highestProb = prediction[i].probability;
+                        mainSkinType = prediction[i].className;
+                    }
+                }
+                
+                currentSkinType = mainSkinType;
+                addMessage(`Kết quả phân tích: Da bạn thuộc loại <strong>${mainSkinType}</strong> với độ chính xác ${(highestProb * 100).toFixed(2)}%.`);
+                
+                // Ask if user wants skin care tips
+                addMessage("Bạn có muốn nhận gợi ý cách chăm sóc da phù hợp không?", false);
+                addOptions([
+                    {
+                        text: "Có, cho tôi gợi ý",
+                        action: showSkinCareTips
+                    },
+                    {
+                        text: "Không, cảm ơn",
+                        action: () => addMessage("Cảm ơn bạn đã sử dụng dịch vụ. Chúc bạn có làn da khỏe mạnh!")
+                    }
+                ]);
+                
+            } catch (error) {
+                console.error("Error during prediction:", error);
+                addMessage("Xin lỗi, có lỗi xảy ra khi phân tích hình ảnh. Vui lòng thử lại với ảnh khác.");
+            }
+        }
+
+        // Initialize model when page loads
+        window.onload = function() {
+            init();
+        };
+    </script>
+</body>
+</html>
